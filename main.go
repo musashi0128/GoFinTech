@@ -1,89 +1,85 @@
 package main
 
 import (
-	"database/sql"
+	"html/template"
+	"io/ioutil"
 	"log"
-
-	_ "github.com/mattn/go-sqlite3"
+	"net/http"
+	"regexp"
 )
 
-const dbPath = "/Users/miyamotokazuhiko/go/src/github.com/mattn/go-sqlite3/example.sql"
+type Page struct {
+	Title string
+	Body  []byte
+}
 
-// DbConnection is DB Connect
-var DbConnection *sql.DB
+func (p *Page) save() error {
+	filename := p.Title + ".txt"
+	return ioutil.WriteFile(filename, p.Body, 0600)
+}
 
-// Person is struct
-type Person struct {
-	Name string
-	Age  int
+func loadPage(title string) (*Page, error) {
+	filename := title + ".txt"
+	body, err := ioutil.ReadFile(filename)
+	if err != nil {
+		return nil, err
+	}
+	return &Page{Title: title, Body: body}, nil
+}
+
+var templates = template.Must(template.ParseFiles("edit.html", "view.html"))
+
+func renderTemplate(w http.ResponseWriter, tmpl string, p *Page) {
+	err := templates.ExecuteTemplate(w, tmpl+".html", p)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+	}
+}
+
+func viewHandler(w http.ResponseWriter, r *http.Request, title string) {
+	p, err := loadPage(title)
+	if err != nil {
+		http.Redirect(w, r, "/edit/"+title, http.StatusFound)
+		return
+	}
+	renderTemplate(w, "view", p)
+}
+
+func editHandler(w http.ResponseWriter, r *http.Request, title string) {
+	p, err := loadPage(title)
+	if err != nil {
+		p = &Page{Title: title}
+	}
+	renderTemplate(w, "edit", p)
+}
+
+func saveHandler(w http.ResponseWriter, r *http.Request, title string) {
+	body := r.FormValue("body")
+	p := &Page{Title: title, Body: []byte(body)}
+	err := p.save()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, "/view/"+title, http.StatusFound)
+}
+
+var validPath = regexp.MustCompile("^/(edit|save|view)/([a-zA-Z0-9]+)$")
+
+func makeHandler(fn func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		m := validPath.FindStringSubmatch(r.URL.Path)
+		if m == nil {
+			http.NotFound(w, r)
+			return
+		}
+		fn(w, r, m[2])
+	}
 }
 
 func main() {
-	DbConnection, _ := sql.Open("sqlite3", dbPath)
-	//defer DbConnection.Close()
-	cmd := `CREATE TABLE IF NOT EXISTS person(
-						name STRING,
-						age  INT)`
-	_, err := DbConnection.Exec(cmd)
-	if err != nil {
-		log.Fatalln(err)
-	}
-
-	// cmd = "INSERT INTO person (name, age) VALUES (?, ?)"
-	// _, err = DbConnection.Exec(cmd, "Nancy", 20)
-
-	// if err != nil {
-	// 	log.Fatalln(err)
-	// }
-
-	// cmd = `UPDATE person SET age = ? WHERE name =  ?`
-	// _, err = DbConnection.Exec(cmd, 25, "Mike")
-
-	// if err != nil {
-	// 	log.Fatalln(err)
-	// }
-
-	// cmd = "SELECT * FROM person"
-	// rows, _ := DbConnection.Query(cmd)
-	// defer rows.Close()
-
-	// var pp []Person
-	// for rows.Next() {
-	// 	var p Person
-	// 	err := rows.Scan(&p.Name, &p.Age)
-	// 	if err != nil {
-	// 		log.Println(err)
-	// 	}
-	// 	pp = append(pp, p)
-	// }
-
-	// err = rows.Err()
-	// if err != nil {
-	// 	log.Println(err)
-	// }
-
-	// for _, p := range pp {
-	// 	fmt.Println(p.Name, p.Age)
-	// }
-
-	// cmd = "SELECT * FROM person where age = ?"
-	// row := DbConnection.QueryRow(cmd, 20)
-
-	// var p Person
-	// err = row.Scan(&p.Name, &p.Age)
-
-	// if err != nil {
-	// 	if err == sql.ErrNoRows {
-	// 		log.Println("No row")
-	// 	} else {
-	// 		log.Println(err)
-	// 	}
-	// }
-	// fmt.Println(p.Name, p.Age)
-
-	cmd = "DELETE FROM person WHERE name =  ?"
-	_, err = DbConnection.Exec(cmd, "Nancy")
-	if err != nil {
-		log.Fatalln(err)
-	}
+	http.HandleFunc("/view/", makeHandler(viewHandler))
+	http.HandleFunc("/edit/", makeHandler(editHandler))
+	http.HandleFunc("/save/", makeHandler(saveHandler))
+	log.Fatal(http.ListenAndServe(":8080", nil))
 }
