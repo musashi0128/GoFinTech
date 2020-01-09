@@ -1,4 +1,9 @@
-# GoFinTech
+# bitflyer
+* bitflyerのdashboard
+    * https://lightning.bitflyer.com/trade
+    * https://bitflyer.com/ja-jp/ex/home
+* bitflyerのapiのドキュメント
+    * https://lightning.bitflyer.com/docs/playground?lang=ja#GETv1%2Fgetmarkets/javascript
 
 # 単純移動平均線(SMA)
 * 3日間の終値を平均して算出 -> 10/20/30と変化した場合
