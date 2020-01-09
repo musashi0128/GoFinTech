@@ -16,12 +16,16 @@
             height:50px;
         }
     </style>
-
+    <!-- https://developers.google.com/chart/interactive/docs/gallery/controls -->
+    <!-- ChartRangeFilter -->
     <script type="text/javascript" src="https://www.gstatic.com/charts/loader.js"></script>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
     <script type="text/javascript">
+        // charts.jsのcorechart,controlsを読み込み
         google.charts.load('current', {'packages':['corechart', 'controls']});
 
+        // apiから取得するデータの設定ファイル
+        // configの情報をparamsに渡す
         var config = {
             api:{
                 enable: true,
@@ -30,15 +34,59 @@
             candlestick:{
                 product_code: 'BTC_JPY',
                 duration: '1m',
-                limit: 365,
+                limit: 50,
                 numViews: 5,
             },
         };
 
+        // apiから受け取ったデータをconfigからparamsに渡す
+        function send () {
+            // api.enableでない場合は操作中なのでapi通信を握り潰す
+            if (config.api.enable == false){
+                return
+            }
+            // apiから受け取ったデータをconfigからparamsに渡す
+            var params = {
+                "product_code": config.candlestick.product_code,
+                "limit": config.candlestick.limit,
+                "duration": config.candlestick.duration,
+            }
+            $.get("/api/candle/", params).done(function (data) {
+                // dataTableはgoogleが提供するオブジェクト -> エクセルなどで使用している
+                // candlestick.numViewsにnumberを5つ渡してグラフを生成している
+                var dataTable = new google.visualization.DataTable();
+                dataTable.addColumn('date', 'Date');
+                dataTable.addColumn('number', 'Low');
+                dataTable.addColumn('number', 'Open');
+                dataTable.addColumn('number', 'Close');
+                dataTable.addColumn('number', 'High');
+                dataTable.addColumn('number', 'Volume');
+
+                // googleChartDataの配列を用意
+                var googleChartData = [];
+                // candlesを格納
+                var candles = data["candles"];
+                // for文でcandlesを指定分生成
+                for(var i=0; i < candles.length; i++){
+                    var candle = candles[i];
+                    var date = new Date(candle.time);
+                    // dataTableに存在
+                    var datas = [date, candle.low, candle.open, candle.close, candle.high, candle.volume];
+                    googleChartData.push(datas)
+                }
+
+                dataTable.addRows(googleChartData);
+                drawChart(dataTable);
+            })
+        }
+
+        // チャートの描画
         function drawChart(dataTable) {
             var chartDiv = document.getElementById('chart_div');
             var charts = [];
+            // dashboardをdiv要素に生成
             var dashboard = new google.visualization.Dashboard(chartDiv);
+            // dataTableで使用するkeyの設定を記述する
             var mainChart = new google.visualization.ChartWrapper({
                 chartType: 'ComboChart',
                 containerId: 'chart_div',
@@ -55,12 +103,13 @@
                 view: {
                     columns: [
                         {
+                            // 時間をstringに変換する
                             calc: function(d, rowIndex) {
                                 return d.getFormattedValue(rowIndex, 0);
                             },
                             type: 'string'
 
-                        }, 1, 2, 3, 4
+                        }, 1, 2, 3, 4 // <- Low,Open,Close,Highの指定
                     ]
 
                 }
@@ -71,59 +120,30 @@
             var options = mainChart.getOptions();
             var view = mainChart.getView();
 
+            // range操作の描画
             var controlWrapper = new google.visualization.ControlWrapper({
+                // rangeで使用するkeyの設定を記述する
                 'controlType': 'ChartRangeFilter',
                 'containerId': 'filter_div',
                 'options': {
                     'filterColumnIndex': 0,
                     'ui': {
                         'chartType': 'LineChart',
+                        // 拡大・縮小の範囲設定
                         'chartView': {
                             'columns': [0, 4]
                         }
                     }
                 }
             });
-
+            // chartsとcontrolWrapperをbind
             dashboard.bind(controlWrapper, charts);
+            // 最終的に生成したdataTableを描画する
             dashboard.draw(dataTable);
 
         }
 
-        function send () {
-            if (config.api.enable == false){
-                return
-            }
-            var params = {
-                "product_code": config.candlestick.product_code,
-                "limit": config.candlestick.limit,
-                "duration": config.candlestick.duration,
-            }
-            $.get("/api/candle/", params).done(function (data) {
-                var dataTable = new google.visualization.DataTable();
-                dataTable.addColumn('date', 'Date');
-                dataTable.addColumn('number', 'Low');
-                dataTable.addColumn('number', 'Open');
-                dataTable.addColumn('number', 'Close');
-                dataTable.addColumn('number', 'High');
-                dataTable.addColumn('number', 'Volume');
-
-                var googleChartData = [];
-                var candles = data["candles"];
-
-                for(var i=0; i < candles.length; i++){
-                    var candle = candles[i];
-                    var date = new Date(candle.time);
-                    var datas = [date, candle.low, candle.open, candle.close, candle.high, candle.volume];
-
-                    googleChartData.push(datas)
-                }
-
-                dataTable.addRows(googleChartData);
-                drawChart(dataTable);
-            })
-        }
-
+        // 1s,1m,1hとcandlestick.durationの値をボタンのvalueから取得して変化させる
         function changeDuration(s){
             config.candlestick.duration = s;
             send();
@@ -132,7 +152,7 @@
         setInterval(send, 1000 * 3)
         window.onload = function () {
             send()
-
+            // dashboardにマウスがあるか判定してenableを書き換える
             $('#dashboard_div').mouseenter(function() {
                 config.api.enable = false;
             }).mouseleave(function() {
